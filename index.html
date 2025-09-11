@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Snake Game Offline</title>
+<style>
+  body {
+    margin: 0;
+    background: #0d0d0d;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 100vh;
+    user-select: none;
+    touch-action: none;
+  }
+  .menu, .game, .gameover { display: none; text-align: center; }
+  .active { display: block; }
+  button {
+    padding: 12px 20px;
+    margin: 10px;
+    font-size: 18px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    background: #1e1e1e;
+    color: #fff;
+  }
+  button:hover { background: #3c3c3c; }
+  .top {
+    display: flex;
+    justify-content: space-between;
+    width: 90%;
+    margin: 10px auto;
+    font-weight: bold;
+  }
+  canvas {
+    background: #000;
+    border: 2px solid #0f0;
+    border-radius: 12px;
+    display: block;
+    margin: auto;
+  }
+</style>
+</head>
+<body>
+  <!-- Menu -->
+  <div class="menu active" id="menu">
+    <h1>🐍 Snake Game</h1>
+    <p>Select Level:</p>
+    <button onclick="startGame('easy')">Easy (Slow)</button>
+    <button onclick="startGame('normal')">Normal (Fast)</button>
+    <button onclick="startGame('hard')">Difficult (Faster)</button>
+    <br><br>
+    <button onclick="resetHighscores()">🔄 Reset Highscores</button>
+    <br><br>
+  </div>
+
+  <!-- Game -->
+  <div class="game" id="gameScreen">
+    <div class="top">
+      <div>Score: <span id="score">0</span></div>
+      <div>Highscore (<span id="levelName"></span>): <span id="high">0</span></div>
+      <button id="pauseBtn">⏸ Pause</button>
+    </div>
+    <canvas id="board"></canvas>
+  </div>
+
+  <!-- Game Over -->
+  <div class="gameover" id="gameOver">
+    <h2>Game Over!</h2>
+    <p>Your Score: <span id="finalScore"></span></p>
+    <button onclick="backToMenu()">Back to Menu</button>
+  </div>
+
+<script>
+let canvas, ctx, TILE, snake, dir, nextDir, food, score, tickId, speedMs, level, paused, tongueVisible = false;
+let highscores = JSON.parse(localStorage.getItem("snakeHighscores") || "{}");
+
+// 🎵 Offline Sounds (YOU PASTE BASE64 HERE)
+let eatSound = new Audio("eat.wav");
+let gameOverSound = new Audio("gameover.wav");
+
+// 🎶 Optional background music
+let bgMusic = new Audio("bgmusic.wav");
+bgMusic.loop = true;
+bgMusic.volume = 0.5;
+bgMusic.play();
+
+function resizeCanvas() {
+  canvas.width = Math.min(window.innerWidth * 0.9, 500);
+  canvas.height = canvas.width;
+  TILE = Math.floor(canvas.width / 20);
+}
+
+function startGame(lvl) {
+  document.getElementById("menu").classList.remove("active");
+  document.getElementById("gameOver").classList.remove("active");
+  document.getElementById("gameScreen").classList.add("active");
+
+  canvas = document.getElementById("board");
+  ctx = canvas.getContext("2d");
+  resizeCanvas();
+  window.onresize = resizeCanvas;
+
+  const levelSpeeds = { easy: 200, normal: 120, hard: 80 };
+  level = lvl;
+  speedMs = levelSpeeds[level];
+  paused = false;
+
+  document.getElementById("levelName").textContent = level.charAt(0).toUpperCase() + level.slice(1);
+  document.getElementById("pauseBtn").textContent = "⏸ Pause";
+
+  reset();
+}
+
+function reset() {
+  snake = [
+    {x: 6, y: 10},
+    {x: 5, y: 10},
+    {x: 4, y: 10},
+  ];
+  dir = {x: 1, y: 0};
+  nextDir = {...dir};
+  food = spawnFood();
+  score = 0;
+  document.getElementById("score").textContent = score;
+
+  if (tickId) clearInterval(tickId);
+  tickId = setInterval(loop, speedMs);
+  draw();
+}
+
+function spawnFood() {
+  const cols = Math.floor(canvas.width / TILE);
+  const rows = Math.floor(canvas.height / TILE);
+  while (true) {
+    const fx = Math.floor(Math.random() * cols);
+    const fy = Math.floor(Math.random() * rows);
+    if (!snake.some(s => s.x === fx && s.y === fy)) {
+      return {x: fx, y: fy};
+    }
+  }
+}
+
+function resetHighscores() {
+  localStorage.removeItem("snakeHighscores");
+  highscores = {};
+  alert("Highscores reset!");
+  document.getElementById("high").textContent = "0";
+}
+
+function loop() {
+  if (paused) return;
+  if (!(nextDir.x === -dir.x && nextDir.y === -dir.y)) dir = nextDir;
+
+  const head = snake[0];
+  const nx = head.x + dir.x;
+  const ny = head.y + dir.y;
+
+  const cols = Math.floor(canvas.width / TILE);
+  const rows = Math.floor(canvas.height / TILE);
+  if (nx < 0 || ny < 0 || nx >= cols || ny >= rows || snake.some(s => s.x === nx && s.y === ny)) {
+    clearInterval(tickId);
+    gameOverSound.play();
+    updateHighscore();
+    document.getElementById("gameScreen").classList.remove("active");
+    document.getElementById("finalScore").textContent = score;
+    document.getElementById("gameOver").classList.add("active");
+    return;
+  }
+
+  snake.unshift({x: nx, y: ny});
+  if (nx === food.x && ny === food.y) {
+    score++;
+    document.getElementById("score").textContent = score;
+    eatSound.play();
+    food = spawnFood();
+  } else {
+    snake.pop();
+  }
+  tongueVisible = Math.random() < 0.2;
+  draw();
+}
+
+function draw() {
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Food
+  ctx.fillStyle = "red";
+  ctx.beginPath();
+  ctx.arc(food.x * TILE + TILE/2, food.y * TILE + TILE/2, TILE/2 - 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Snake
+  for (let i = 0; i < snake.length; i++) {
+    const seg = snake[i];
+    const x = seg.x * TILE + TILE/2;
+    const y = seg.y * TILE + TILE/2;
+
+    ctx.fillStyle = i === 0 ? "#0f0" : "#7fff7f";
+    ctx.beginPath();
+    ctx.arc(x, y, TILE/2 - 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (i === 0) {
+      // Eyes
+      ctx.fillStyle = "white";
+      const eyeOffset = TILE/4;
+      ctx.beginPath(); ctx.arc(x - eyeOffset, y - 5, 3, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + eyeOffset, y - 5, 3, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "black";
+      ctx.beginPath(); ctx.arc(x - eyeOffset, y - 5, 1.5, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + eyeOffset, y - 5, 1.5, 0, Math.PI*2); ctx.fill();
+
+      // Tongue follows direction
+      if (tongueVisible) {
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (dir.x === 1) { ctx.moveTo(x + TILE/2, y); ctx.lineTo(x + TILE, y); }
+        else if (dir.x === -1) { ctx.moveTo(x - TILE/2, y); ctx.lineTo(x - TILE, y); }
+        else if (dir.y === 1) { ctx.moveTo(x, y + TILE/2); ctx.lineTo(x, y + TILE); }
+        else if (dir.y === -1) { ctx.moveTo(x, y - TILE/2); ctx.lineTo(x, y - TILE); }
+        ctx.stroke();
+      }
+    }
+  }
+  document.getElementById("high").textContent = highscores[level] || 0;
+}
+
+function updateHighscore() {
+  let currentHigh = highscores[level] || 0;
+  if (score > currentHigh) {
+    highscores[level] = score;
+    localStorage.setItem("snakeHighscores", JSON.stringify(highscores));
+  }
+}
+
+function backToMenu() {
+  document.getElementById("gameOver").classList.remove("active");
+  document.getElementById("menu").classList.add("active");
+}
+function togglePause() {
+  paused = !paused;
+  document.getElementById("pauseBtn").textContent = paused ? "▶ Play" : "⏸ Pause";
+}
+
+// Keyboard
+window.addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  if (k === "p") togglePause();
+  if (k === "arrowup" || k === "w") nextDir = {x: 0, y: -1};
+  if (k === "arrowdown" || k === "s") nextDir = {x: 0, y: 1};
+  if (k === "arrowleft" || k === "a") nextDir = {x: -1, y: 0};
+  if (k === "arrowright" || k === "d") nextDir = {x: 1, y: 0};
+});
+
+// Swipe for mobile
+let startX, startY;
+window.addEventListener("touchstart", e => {
+  if (e.touches.length === 1) {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }
+});
+window.addEventListener("touchend", e => {
+  if (!startX || !startY) return;
+  let dx = e.changedTouches[0].clientX - startX;
+  let dy = e.changedTouches[0].clientY - startY;
+  if (Math.abs(dx) > Math.abs(dy)) {
+    if (dx > 30) nextDir = {x: 1, y: 0};
+    else if (dx < -30) nextDir = {x: -1, y: 0};
+  } else {
+    if (dy > 30) nextDir = {x: 0, y: 1};
+    else if (dy < -30) nextDir = {x: 0, y: -1};
+  }
+  startX = startY = null;
+});
+
+document.getElementById("pauseBtn").addEventListener("click", togglePause);
+</script>
+</body>
+</html>
